@@ -191,14 +191,17 @@ type typeResources struct {
 }
 
 func GetResources(config *rest.Config, enableTypeDirective *EnableTypeDirective) (*typeResources, error) {
+	// Read-Note: 从这个集群里已经存在所有资源类型中找到需要 fed 管理的资源
 	apiResource, err := LookupAPIResource(config, enableTypeDirective.Name, enableTypeDirective.Spec.TargetVersion)
 	if err != nil {
 		return nil, err
 	}
 	klog.V(2).Infof("Found type %q", resourceKey(*apiResource))
 
+	// Read-Note: 生成对应 Target Type 相关的配置
 	typeConfig := GenerateTypeConfigForTarget(*apiResource, enableTypeDirective)
 
+	// Read-Note: 生成用于校验 API Resource 的 Validation Schema，基本就是程式化的按照固定规则注入模板
 	accessor, err := newSchemaAccessor(config, *apiResource)
 	if err != nil {
 		return nil, errors.Wrap(err, "Error initializing validation schema accessor")
@@ -352,10 +355,12 @@ func CreateResources(cmdOut io.Writer, config *rest.Config, resources *typeResou
 	return nil
 }
 
+// Read-Note: Enable 本质就是创建一个 FTC 资源提交到 host cluster 的 API Server，然后再由该集群的 FTC 控制器触发一系列操作
 func GenerateTypeConfigForTarget(apiResource metav1.APIResource, enableTypeDirective *EnableTypeDirective) typeconfig.Interface {
 	spec := enableTypeDirective.Spec
 	kind := apiResource.Kind
 	pluralName := apiResource.Name
+	// Read-Note: 生成 FTC 资源对象
 	typeConfig := &fedv1b1.FederatedTypeConfig{
 		// Explicitly including TypeMeta will ensure it will be
 		// serialized properly to yaml.
