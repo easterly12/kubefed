@@ -56,6 +56,7 @@ const (
 	ClusterReachableMsg       = "cluster is reachable"
 )
 
+// Read-Note：监听集群的状态，带着集群名称封装原生的 Client
 // ClusterClient provides methods for determining the status and zones of a
 // particular KubeFedCluster.
 type ClusterClient struct {
@@ -63,6 +64,7 @@ type ClusterClient struct {
 	clusterName string
 }
 
+// Read-Note：基本带上一些配置、控制器版本信息来基于原生 Client 进行初始化
 // NewClusterClientSet returns a ClusterClient for the given KubeFedCluster.
 // The kubeClient is used to configure the ClusterClient's internal client
 // with information from a kubeconfig stored in a kubernetes secret.
@@ -126,6 +128,8 @@ func (c *ClusterClient) GetClusterHealthStatus() (*fedv1b1.KubeFedClusterStatus,
 		LastProbeTime:      currentTime,
 		LastTransitionTime: &currentTime,
 	}
+	// Read-Note: 健康检查接口固定为 `/healthz` ，将状态更新到 status condition，
+	// 请求出错在指标上将集群注册为 Offline，非 OK 注册为 Not Ready，OK 注册为 Ready
 	body, err := c.kubeClient.DiscoveryClient.RESTClient().Get().AbsPath("/healthz").Do(context.Background()).Raw()
 	if err != nil {
 		runtime.HandleError(errors.Wrapf(err, "Failed to do cluster health check for cluster %q", c.clusterName))
