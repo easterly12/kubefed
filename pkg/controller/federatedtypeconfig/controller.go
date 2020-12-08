@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/kubefed/pkg/metrics"
 )
 
+// Read-Note: 用于控制 Fed Type 的删除，只有 Finalizer 被置空，配合 Deletion Timestamp 才能删除对应的对象
 const finalizer string = "core.kubefed.io/federated-type-config"
 
 // The FederatedTypeConfig controller configures sync and status
@@ -55,8 +56,10 @@ type Controller struct {
 	stopChannels map[string]chan struct{}
 	lock         sync.RWMutex
 
+	// Read-Note: 记录 Fed Type Config 对象
 	// Store for the FederatedTypeConfig objects
 	store cache.Store
+	// Read-Note: Fed Type Config 对象的 Informer
 	// Informer for the FederatedTypeConfig objects
 	controller cache.Controller
 
@@ -90,6 +93,7 @@ func newController(config *util.ControllerConfig) (*Controller, error) {
 		stopChannels:     make(map[string]chan struct{}),
 	}
 
+	// Read-Note: 调协函数在 Worker 中起作用
 	c.worker = util.NewReconcileWorker(c.reconcile, util.WorkerTiming{})
 
 	// Only watch the KubeFed namespace to ensure
@@ -128,12 +132,16 @@ func (c *Controller) Run(stopChan <-chan struct{}) {
 	}()
 }
 
+// Read-Note: 调协函数的主体内容
 func (c *Controller) reconcile(qualifiedName util.QualifiedName) util.ReconciliationStatus {
+	// Read-Note: 获取请求的 FTC 名称，如果 Namespaced 对象为 ns/name ，否则就是 name
 	key := qualifiedName.String()
+	// Read-Note: 每一次对于一个对象调协结束都记录到指标监控中
 	defer metrics.UpdateControllerReconcileDurationFromStart("federatedtypeconfigcontroller", time.Now())
 
 	klog.V(3).Infof("Running reconcile FederatedTypeConfig for %q", key)
 
+	// Read-Note: 通过 FTC 的 key 名称从 cache 中获取一个对象的副本，直接断言转换成 FTC 类型
 	cachedObj, err := c.objCopyFromCache(key)
 	if err != nil {
 		return util.StatusError
@@ -144,12 +152,15 @@ func (c *Controller) reconcile(qualifiedName util.QualifiedName) util.Reconcilia
 	}
 	typeConfig := cachedObj.(*corev1b1.FederatedTypeConfig)
 
+	// Read-Note: 初始化 CRD 相关的字段，但是其实就是 plural name、group、version 之类的信息，可忽略
 	// TODO(marun) Perform this defaulting in a webhook
 	corev1b1.SetFederatedTypeConfigDefaults(typeConfig)
 
+	// Read-Note: 获取 sync 和 status 更新的控制器启动状态
 	syncEnabled := typeConfig.GetPropagationEnabled()
 	statusEnabled := typeConfig.GetStatusEnabled()
 
+	// Read-Note: 对于非 Namespaced 对象，在开启 sync 的情况下，更新 status 状态
 	limitedScope := c.controllerConfig.TargetNamespace != metav1.NamespaceAll
 	if limitedScope && syncEnabled && !typeConfig.GetNamespaced() {
 		_, ok := c.getStopChannel(typeConfig.Name)
@@ -161,6 +172,7 @@ func (c *Controller) reconcile(qualifiedName util.QualifiedName) util.Reconcilia
 			klog.Infof("Skipping start of sync & status controller for cluster-scoped resource %q. It is not required for a namespaced KubeFed control plane.", typeConfig.GetFederatedType().Kind)
 		}
 
+		// Read-Note: 初始化 Propagation 和 Status Controller 的状态为 Not Running
 		typeConfig.Status.ObservedGeneration = typeConfig.Generation
 		typeConfig.Status.PropagationController = corev1b1.ControllerStatusNotRunning
 
@@ -176,11 +188,14 @@ func (c *Controller) reconcile(qualifiedName util.QualifiedName) util.Reconcilia
 		return util.StatusAllOK
 	}
 
+	// Read-Note: 获取 sync 和 status 的 stop channel
 	statusKey := typeConfig.Name + "/status"
 	syncStopChan, syncRunning := c.getStopChannel(typeConfig.Name)
 	statusStopChan, statusRunning := c.getStopChannel(statusKey)
 
+	// Read-Note: 处理需要删除的 FTC
 	deleted := typeConfig.DeletionTimestamp != nil
+	// Read-Note： 如果 FTC 是需要删除的，给对应的 channel 发消息停止，同时删除 chan map 里对应的 key-value
 	if deleted {
 		if syncRunning {
 			c.stopController(typeConfig.Name, syncStopChan)
@@ -189,11 +204,13 @@ func (c *Controller) reconcile(qualifiedName util.QualifiedName) util.Reconcilia
 			c.stopController(statusKey, statusStopChan)
 		}
 
+		// Read-Note: 对于 Namespace 对象的删除，需要把该 NS 下所有的对象都标记为删除
 		if typeConfig.IsNamespace() {
 			klog.Infof("Reconciling all namespaced FederatedTypeConfig resources on deletion of %q", key)
 			c.reconcileOnNamespaceFTCUpdate()
 		}
 
+		// Read-Note: 删除 Finalizer 最终回收 FTC
 		err := c.removeFinalizer(typeConfig)
 		if err != nil {
 			runtime.HandleError(errors.Wrapf(err, "Failed to remove finalizer from FederatedTypeConfig %q", key))
@@ -202,6 +219,7 @@ func (c *Controller) reconcile(qualifiedName util.QualifiedName) util.Reconcilia
 		return util.StatusAllOK
 	}
 
+	// Read-Note: 确保 FTC 都有 Finalizer，如果 FTC 是 NS ，还需要保证改 NS 下的所有对象都有 Finalizer
 	updated, err := c.ensureFinalizer(typeConfig)
 	if err != nil {
 		runtime.HandleError(errors.Wrapf(err, "Failed to ensure finalizer for FederatedTypeConfig %q", key))
@@ -214,6 +232,8 @@ func (c *Controller) reconcile(qualifiedName util.QualifiedName) util.Reconcilia
 		c.reconcileOnNamespaceFTCUpdate()
 	}
 
+	// Read-Note: 真正的控制调协策略！！！
+	// Read-Note: 如果 sync enabled 但是未 running 则启动，若运行但无需开启（非 namespaced 对象或者 FTC 已经删除）则停止
 	startNewSyncController := !syncRunning && syncEnabled
 	stopSyncController := syncRunning && (!syncEnabled || (typeConfig.GetNamespaced() && !c.namespaceFTCExists()))
 	if startNewSyncController {
@@ -225,6 +245,7 @@ func (c *Controller) reconcile(qualifiedName util.QualifiedName) util.Reconcilia
 		c.stopController(typeConfig.Name, syncStopChan)
 	}
 
+	// Read-Note: Status controller 的判断启动或者停止，无需判断 FTC 的关联对象或者是否删除，比 Sync 要简单
 	startNewStatusController := !statusRunning && statusEnabled
 	stopStatusController := statusRunning && !statusEnabled
 	if startNewStatusController {
@@ -236,6 +257,7 @@ func (c *Controller) reconcile(qualifiedName util.QualifiedName) util.Reconcilia
 		c.stopController(statusKey, statusStopChan)
 	}
 
+	// Read-Note: 如果 sync controller 没有调整，同时 Observed Generation 不一致，则刷新 sync controller 的状态
 	if !startNewSyncController && !stopSyncController &&
 		typeConfig.Status.ObservedGeneration != typeConfig.Generation {
 		if err := c.refreshSyncController(typeConfig); err != nil {
@@ -244,6 +266,7 @@ func (c *Controller) reconcile(qualifiedName util.QualifiedName) util.Reconcilia
 		}
 	}
 
+	// Read-Note: 设置 Observed Generation 状态
 	typeConfig.Status.ObservedGeneration = typeConfig.Generation
 	syncControllerRunning := startNewSyncController || (syncRunning && !stopSyncController)
 	if syncControllerRunning {
@@ -252,6 +275,7 @@ func (c *Controller) reconcile(qualifiedName util.QualifiedName) util.Reconcilia
 		typeConfig.Status.PropagationController = corev1b1.ControllerStatusNotRunning
 	}
 
+	// Read-Note: 更新 FTC 的 Status 控制器状态信息
 	if typeConfig.Status.StatusController == nil {
 		typeConfig.Status.StatusController = new(corev1b1.ControllerStatus)
 	}
@@ -262,6 +286,8 @@ func (c *Controller) reconcile(qualifiedName util.QualifiedName) util.Reconcilia
 	} else {
 		*typeConfig.Status.StatusController = corev1b1.ControllerStatusNotRunning
 	}
+
+	// Read-Note: 更新 FTC 资源的状态
 	err = c.client.UpdateStatus(context.TODO(), typeConfig)
 	if err != nil {
 		runtime.HandleError(errors.Wrapf(err, "Could not update status fields of the CRD: %q", key))
@@ -301,6 +327,7 @@ func (c *Controller) getStopChannel(name string) (chan struct{}, bool) {
 	return stopChan, ok
 }
 
+// Read-Note: Sync 控制器的代码
 func (c *Controller) startSyncController(tc *corev1b1.FederatedTypeConfig) error {
 	// TODO(marun) Consider using a shared informer for federated
 	// namespace that can be shared between all controllers of a
@@ -308,9 +335,11 @@ func (c *Controller) startSyncController(tc *corev1b1.FederatedTypeConfig) error
 	// control plane would still have to use a non-shared informer due
 	// to it not being possible to limit its scope.
 
+	// Read-Note: 获取 FTC 的副本，同时进行断言类型转换
 	ftc := tc.DeepCopyObject().(*corev1b1.FederatedTypeConfig)
 	kind := ftc.Spec.FederatedType.Kind
 
+	// Read-Note: 对于 Namespaced 的资源需要同时传入关联的 Namespace 对象
 	// A sync controller for a namespaced resource must be supplied
 	// with the ftc for namespaces so that it can consider federated
 	// namespace placement when determining the placement for
@@ -325,6 +354,7 @@ func (c *Controller) startSyncController(tc *corev1b1.FederatedTypeConfig) error
 	}
 
 	stopChan := make(chan struct{})
+	// Read-Note: 启动 Sync 控制器，重点看这里看这里！
 	err := synccontroller.StartKubeFedSyncController(c.controllerConfig, stopChan, ftc, fedNamespaceAPIResource)
 	if err != nil {
 		close(stopChan)
@@ -337,6 +367,7 @@ func (c *Controller) startSyncController(tc *corev1b1.FederatedTypeConfig) error
 	return nil
 }
 
+// Read-Note: 启动下 status 控制器，同时生成一个 channel 用于 FTC 随时关闭相关的 status 控制器
 func (c *Controller) startStatusController(statusKey string, tc *corev1b1.FederatedTypeConfig) error {
 	kind := tc.Spec.FederatedType.Kind
 	stopChan := make(chan struct{})
@@ -361,6 +392,7 @@ func (c *Controller) stopController(key string, stopChan chan struct{}) {
 	delete(c.stopChannels, key)
 }
 
+// Read-Note: 刷新 Sync 控制机就是停止再启动
 func (c *Controller) refreshSyncController(tc *corev1b1.FederatedTypeConfig) error {
 	klog.Infof("refreshing sync controller for %q", tc.Name)
 
