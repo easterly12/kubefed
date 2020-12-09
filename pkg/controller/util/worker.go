@@ -27,6 +27,8 @@ import (
 
 type ReconcileFunc func(qualifiedName QualifiedName) ReconciliationStatus
 
+// Read-Note: 本质其实就是个队列，将需要各种需要调协的资源入队等待处理
+// 根据入队时给定的条件，结合处理的返回的结果，对于是否延时处理、处理错误或者重试等有一些不同的处理
 type ReconcileWorker interface {
 	Enqueue(qualifiedName QualifiedName)
 	EnqueueForClusterSync(qualifiedName QualifiedName)
