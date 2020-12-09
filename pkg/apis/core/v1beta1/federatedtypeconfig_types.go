@@ -31,13 +31,13 @@ type FederatedTypeConfigSpec struct {
 	// The configuration of the target type. If not set, the pluralName and
 	// groupName fields will be set from the metadata.name of this resource. The
 	// kind field must be set.
-	TargetType APIResource `json:"targetType"`
+	TargetType APIResource `json:"targetType"` // Read-Note: 对应实际需要加入多集群控制的资源类型
 	// Whether or not propagation to member clusters should be enabled.
-	Propagation PropagationMode `json:"propagation"`
+	Propagation PropagationMode `json:"propagation"` // Read-Note: 为 Enable 时则纳入 fed 管控通过 fed type 来控制该集群的 target type 对象
 	// Configuration for the federated type that defines (via
 	// template, placement and overrides fields) how the target type
 	// should appear in multiple cluster.
-	FederatedType APIResource `json:"federatedType"`
+	FederatedType APIResource `json:"federatedType"` // Read-Note: 对应定义的 kubefed 资源
 	// Configuration for the status type that holds information about which type
 	// holds the status of the federated resource. If not provided, the group
 	// and version will default to those provided for the federated type api

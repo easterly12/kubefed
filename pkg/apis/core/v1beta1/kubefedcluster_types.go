@@ -94,10 +94,12 @@ type KubeFedCluster struct {
 
 // ClusterCondition describes current state of a cluster.
 type ClusterCondition struct {
+	// Read-Note：集群和 Host 集群链接的状态，在线或者是失联
 	// Type of cluster condition, Ready or Offline.
 	Type common.ClusterConditionType `json:"type"`
 	// Status of the condition, one of True, False, Unknown.
 	Status apiv1.ConditionStatus `json:"status"`
+	// Read-Note：最后一次通信确认状态的时间
 	// Last time the condition was checked.
 	LastProbeTime metav1.Time `json:"lastProbeTime"`
 	// Last time the condition transit from one status to another.
