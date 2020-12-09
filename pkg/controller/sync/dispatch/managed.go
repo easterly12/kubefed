@@ -157,6 +157,7 @@ func (d *managedDispatcherImpl) Create(clusterName string) {
 			return util.StatusAllOK
 		}
 
+		// Read-Question: 这里为什么要把 Server 超时归类到已经存在？
 		// TODO(marun) Figure out why attempting to create a namespace that
 		// already exists indicates ServerTimeout instead of AlreadyExists.
 		alreadyExists := apierrors.IsAlreadyExists(err) || d.fedResource.TargetKind() == util.NamespaceKind && apierrors.IsServerTimeout(err)

@@ -64,10 +64,13 @@ type KubeFedSyncController struct {
 	// TODO(marun) add comment
 	worker util.ReconcileWorker
 
+	// Read-Note: Deliverer 用于在集群状态变化是触发 fed 资源的调协
+	// 本质其实是个封装的 Heap + target/update/stop channel
 	// For triggering reconciliation of all target resources. This is
 	// used when a new cluster becomes available.
 	clusterDeliverer *util.DelayingDeliverer
 
+	// Read-Note: 成员集群的资源 Informer
 	// Informer for resources in member clusters
 	informer util.FederatedInformer
 
@@ -80,8 +83,10 @@ type KubeFedSyncController struct {
 
 	typeConfig typeconfig.Interface
 
+	// Read-Note: fed 资源的遍历器，方便批量操作
 	fedAccessor FederatedResourceAccessor
 
+	// Read-Note: Host cluster 的 client
 	hostClusterClient genericclient.Client
 
 	skipAdoptingResources bool
@@ -89,8 +94,13 @@ type KubeFedSyncController struct {
 	limitedScope bool
 }
 
+// Read-Note: FTC 资源其实是对 kubernetes 资源映射，当 FTC 控制器把 sync 控制器启动了之后，
+// sync 控制器再去监控联邦 CRD （FederatedXXX），这些资源的创建其实才是 sync 控制器管理的真正对象。
+// FTC 控制器的真正目的其实就是看那些 kubernetes 资源对象需要被联邦管理，哪些不需要。
+// 需要的资源对象，就创建一个 FTC 对象声明下，那么 FTC 控制器会启动一个 sync 控制器来跟进这个 kubernetes 对象（或 kubernetes CRD）的变化。
 // StartKubeFedSyncController starts a new sync controller for a type config
 func StartKubeFedSyncController(controllerConfig *util.ControllerConfig, stopChan <-chan struct{}, typeConfig typeconfig.Interface, fedNamespaceAPIResource *metav1.APIResource) error {
+	// Read-Note: 启动 fed sync 控制器，监听的对象为 Type Config 类型
 	controller, err := newKubeFedSyncController(controllerConfig, typeConfig, fedNamespaceAPIResource)
 	if err != nil {
 		return err
@@ -142,15 +152,19 @@ func newKubeFedSyncController(controllerConfig *util.ControllerConfig, typeConfi
 		controllerConfig,
 		client,
 		&targetAPIResource,
+		// Read-Note: 触发 fed 资源调协的函数，这个函数被注入到一个 Event watcher 有任何对应 Object 的变更触发入队元素的调协
 		func(obj pkgruntime.Object) {
 			qualifiedName := util.NewQualifiedName(obj)
 			s.worker.EnqueueForRetry(qualifiedName)
 		},
+		// Read-Note: 针对集群状态的变更，都触发所有目标资源的重新处理
 		&util.ClusterLifecycleHandlerFuncs{
+			// Read-Note: 当有新的集群可用（可能是新加入或者不可用集群恢复）
 			ClusterAvailable: func(cluster *fedv1b1.KubeFedCluster) {
 				// When new cluster becomes available process all the target resources again.
 				s.clusterDeliverer.DeliverAt(allClustersKey, nil, time.Now().Add(s.clusterAvailableDelay))
 			},
+			// Read-Note: 当有新的集群不可用（可能是被移除或者状态失联）
 			// When a cluster becomes unavailable process all the target resources again.
 			ClusterUnavailable: func(cluster *fedv1b1.KubeFedCluster, _ []interface{}) {
 				s.clusterDeliverer.DeliverAt(allClustersKey, nil, time.Now().Add(s.clusterUnavailableDelay))
@@ -161,6 +175,7 @@ func newKubeFedSyncController(controllerConfig *util.ControllerConfig, typeConfi
 		return nil, err
 	}
 
+	// Read-Note: 处理实际处理 fed 资源的 Accessor
 	s.fedAccessor, err = NewFederatedResourceAccessor(
 		controllerConfig, typeConfig, fedNamespaceAPIResource,
 		client, s.worker.EnqueueObject, recorder)
@@ -199,16 +214,19 @@ func (s *KubeFedSyncController) Run(stopChan <-chan struct{}) {
 // Check whether all data stores are in sync. False is returned if any of the informer/stores is not yet
 // synced with the corresponding api server.
 func (s *KubeFedSyncController) isSynced() bool {
+	// Read-Note: 获取集群拓扑信息的 Controller 是否同步
 	if !s.informer.ClustersSynced() {
 		klog.V(2).Infof("Cluster list not synced")
 		return false
 	}
+	// Read-Note: Accessor 是否同步，主要取决于里面的各类 manager 和 controller 是否初始化或者同步完毕
 	if !s.fedAccessor.HasSynced() {
 		// The fed accessor will have logged why sync is not yet
 		// complete.
 		return false
 	}
 
+	// Read-Note: 获取所有就绪集群，逐一确认对应 Target Type 相关的 controller 在所有就绪集群是否同步完成
 	// TODO(marun) set clusters as ready in the test fixture?
 	clusters, err := s.informer.GetReadyClusters()
 	if err != nil {
@@ -221,6 +239,7 @@ func (s *KubeFedSyncController) isSynced() bool {
 	return true
 }
 
+// Read-Note: 针对集群状态变更的的调协，全部集群相关 fed 资源都遍历一遍（由 ClusterLifecycleHandlerFuncs 触发）
 // The function triggers reconciliation of all target federated resources.
 func (s *KubeFedSyncController) reconcileOnClusterChange() {
 	if !s.isSynced() {
@@ -232,13 +251,20 @@ func (s *KubeFedSyncController) reconcileOnClusterChange() {
 	})
 }
 
+// Read-Note: 同步器的主体——针对某个具体资源调协逻辑
 func (s *KubeFedSyncController) reconcile(qualifiedName util.QualifiedName) util.ReconciliationStatus {
+	// Read-Note: 判断 Informer 是否是最新同步内容
 	if !s.isSynced() {
 		return util.StatusNotSynced
 	}
 
 	kind := s.typeConfig.GetFederatedType().Kind
 
+	// Read-Note: 构造需要可能需要更新的对象
+	// 其中 possibleOrphan 为 true 的情况是对于本身就是 NS 或者非 NS 相关对象
+	// 从后面的处理来看，这些对象的被 kubefed 接管之后如果不做主动的清理则可能成为孤儿，
+	// 而 NS 关联对象则可以跟随 NS 的清理被删除
+	// 清理的最终执行对象是 Dispatcher 的 Unmanaged 类
 	fedResource, possibleOrphan, err := s.fedAccessor.FederatedResource(qualifiedName)
 	if err != nil {
 		runtime.HandleError(errors.Wrapf(err, "Error creating FederatedResource helper for %s %q", kind, qualifiedName))
@@ -270,15 +296,38 @@ func (s *KubeFedSyncController) reconcile(qualifiedName util.QualifiedName) util
 		metrics.ReconcileFederatedResourcesDurationFromStart(startTime)
 	}()
 
+	// Read-Note: 如果该对象已经被标记为删除，则检查一系列删除流程，确保其清理回收不会被阻塞：
+	// 是否设置 Finalizer、其清理 Annotation 是否标记 Orphan 清理、是否移除标记 kubefed 接管的 label
+	// 当以上检查都确认无误之后，进行对象在各个集群的清理，并统计有哪些集群因为清理异常有遗留
+	// 其中会绕过一些关键或者特殊的对象，比如：
+	// 1. host cluster 中的 NS（只会移除接管，host cluster 中 NS 的清理是由上层 Controller 负责，sync 不负责
+	// 2. 已经被标记删除的对象（无需重复删除）
 	if fedResource.Object().GetDeletionTimestamp() != nil {
 		return s.ensureDeletion(fedResource)
 	}
+
+	// Read-Note: 如果该对象没有被标记删除，则需要确保 Finalizer 存在，阻拦其他组件对于该对象的删除
 	err = s.ensureFinalizer(fedResource)
 	if err != nil {
 		fedResource.RecordError("EnsureFinalizerError", errors.Wrap(err, "Failed to ensure finalizer"))
 		return util.StatusError
 	}
 
+	// Read-Note: 最后才是真正的同步所有集群环节，其中流程是：
+	// 1. 获取全部集群，根据 fed resource placement 获取其中关联到的集群（这段路基再 placement）
+	// 1.1. 选中的集群是已经注册的集群和 resource placement 中的集群取交集，也就是说 placement 中存在未注册集群会被忽略
+	// 1.2. 如果对象本身是 NS 关联的，则获取的交集是需要带上 NS 再取交集
+	// 2. 实际同步的工作由 Dispatcher 中的 Managed 类负责，Dispatcher 判断集群是否为选中、就绪
+	// 2.1. 未选中的集群：未就绪的直接忽略；就绪的判断是否由之前的残留，需要进行清理对象；
+	// 2.2. 选中的集群：未就绪的上报状态到 Status；就绪执行对象的更新（不存在则 Create，存在则 Update）；
+	// 2.3.1. Create 中包含了从 fed resource 中获取 template，填充 override，然后是 Add 相关的错误判断，最后还会走一遍 Update 的流程确保 fed 接管的 label 存在
+	// 2.3.2. Update 中包含了对于标记接管的 label 的判断，然后是依照 Retain（dispatch/retain）方式更新关联的 resource
+	//（目前有 Service、Service Account、Replicas 相关，这块在 retain 部分详细分析），然后再填充一遍 override，在进行 version 更新
+	// 3. 以上所有操作会有一个超时时间（目前是配置在 `newOperationDispatcher` 中的 30s），超时也会被认为失败记录事件
+	// 4. 更新记录 fed resource status 到 host cluster：
+	// 要么更新 status 成功则一次完成，否则会进行 interval 1s timeout 5s 的重试，超时仍认为更新 Status 失败
+	// * 其他一些原因也会触发 Status 更新到 host cluster （setFederatedStatus 的调用位置，具体见传入的 reason ）
+	// * 最终 status 更新的流程见 status.SetFederatedStatus
 	return s.syncToClusters(fedResource)
 }
 
@@ -485,6 +534,8 @@ func (s *KubeFedSyncController) ensureDeletion(fedResource FederatedResource) ut
 // removeManagedLabel attempts to remove the managed label from
 // resources with the given name in member clusters.
 func (s *KubeFedSyncController) removeManagedLabel(gvk schema.GroupVersionKind, qualifiedName util.QualifiedName) error {
+	// Read-Note: 此处 handleDeletionInClusters 只是套了一个多集群的便利、集群就绪状态验证、目标资源的构造，其实本质还是执行 deletion func
+	// 而 deletion func 只是对于单集群的对象进行判断，如果被置了 deletion timestamp（标记删除）则移除 kubefed 接管 obj 的 label `handleDeletionInClusters==true`
 	ok, err := s.handleDeletionInClusters(gvk, qualifiedName, func(dispatcher dispatch.UnmanagedDispatcher, clusterName string, clusterObj *unstructured.Unstructured) {
 		if clusterObj.GetDeletionTimestamp() != nil {
 			return

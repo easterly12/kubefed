@@ -154,6 +154,7 @@ func (s *GenericFederatedStatus) update(generation int64, reason AggregateReason
 		s.ObservedGeneration = generation
 	}
 
+	// Read-Note: 如果有局部的集群 Propagation 没有成功，还要做个纠正，相当严格
 	// Identify whether one or more clusters could not be reconciled
 	// successfully.
 	if reason == AggregateSuccess {
@@ -172,6 +173,7 @@ func (s *GenericFederatedStatus) update(generation int64, reason AggregateReason
 	// occur even if status.clusters was unchanged).
 	changesPropagated := clustersChanged || len(collectedStatus.StatusMap) > 0 && collectedStatus.ResourcesUpdated
 
+	// Read-Note: 只要有集群的状态有变更，就需要在 Propagation Condition 中有所体现
 	propStatusUpdated := s.setPropagationCondition(reason, changesPropagated)
 
 	statusUpdated := generationUpdated || propStatusUpdated
@@ -232,26 +234,26 @@ func (s *GenericFederatedStatus) setPropagationCondition(reason AggregateReason,
 		}
 	}
 
-	newCondition := propCondition == nil
-	if newCondition {
+	// Read-Question: 这段 prop condition 的更新写得太绕，做了一些改写
+	// 但是有考虑说：不管是否有更新都做一次 Status Update 不就好了，
+	// 应该这部分开销并不会很大，也没有引发一系列连锁反应的可能，反而是这边做一堆判断翻车的可能性更大
+	now := time.Now().UTC().Format(time.RFC3339)
+	updateRequired := false
+	if propCondition == nil {
 		propCondition = &GenericCondition{
 			Type: PropagationConditionType,
 		}
 		s.Conditions = append(s.Conditions, propCondition)
-	}
-
-	now := time.Now().UTC().Format(time.RFC3339)
-
-	transition := newCondition || !(propCondition.Status == newStatus && propCondition.Reason == reason)
-	if transition {
+		updateRequired = true
+	} else if !(propCondition.Status == newStatus && propCondition.Reason == reason) {
 		propCondition.LastTransitionTime = now
 		propCondition.Status = newStatus
 		propCondition.Reason = reason
+		updateRequired = true
 	}
-
-	updateRequired := changesPropagated || transition
-	if updateRequired {
+	if changesPropagated {
 		propCondition.LastUpdateTime = now
+		updateRequired = true
 	}
 
 	return updateRequired

@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/kubefed/pkg/controller/util"
 )
 
+// Read-Note: 处理删除对象的确认：被标记删除且 kubefed 接管标签已经移除
 type isNamespaceInHostClusterFunc func(clusterObj pkgruntime.Object) bool
 
 type CheckUnmanagedDispatcher interface {

@@ -31,6 +31,7 @@ import (
 
 type clientAccessorFunc func(clusterName string) (generic.Client, error)
 
+// Read-Note: 封装了一些共用的操作，比如 Event 报告、错误状态更新至 Status
 type dispatchRecorder interface {
 	recordEvent(clusterName, operation, operationContinuous string)
 	recordOperationError(status status.PropagationStatus, clusterName, operation string, err error) util.ReconciliationStatus

@@ -24,6 +24,8 @@ import (
 	"sigs.k8s.io/kubefed/pkg/controller/util"
 )
 
+// Read-Note: 对于 Update 来说 Version（避免更新时被拒绝）、Finalizer、Annotations（因为可能被各自的 cluster 修改） 都保持不变
+// 其他特殊对象可能会有特殊的操作，放到后面的 retain func 来具体分析
 // RetainClusterFields updates the desired object with values retained
 // from the cluster object.
 func RetainClusterFields(targetKind string, desiredObj, clusterObj, fedObj *unstructured.Unstructured) error {
@@ -45,6 +47,7 @@ func RetainClusterFields(targetKind string, desiredObj, clusterObj, fedObj *unst
 	return retainReplicas(desiredObj, clusterObj, fedObj)
 }
 
+// Read-Note: Service 对象的 cluster IP、Node Ports 保留
 func retainServiceFields(desiredObj, clusterObj *unstructured.Unstructured) error {
 	// ClusterIP and NodePort are allocated to Service by cluster, so retain the same if any while updating
 
@@ -98,6 +101,9 @@ func retainServiceFields(desiredObj, clusterObj *unstructured.Unstructured) erro
 	return nil
 }
 
+// Read-Note: SA 对象涉及到 Secrets 的情况下，要避免 sync 把生成的 secrets 清空掉，
+// 毕竟 SA 控制的权限可能关联了同一 NS 下 resource 和 容器内访问的诸多行为
+// 但这也带来了一个额外的问题，如果当前确实需要清理 Secrets，则必须通过强制把关联 fed resource 中的 placement 重置
 // retainServiceAccountFields retains the 'secrets' field of a service account
 // if the desired representation does not include a value for the field.  This
 // ensures that the sync controller doesn't continually clear a generated
@@ -132,6 +138,7 @@ func retainServiceAccountFields(desiredObj, clusterObj *unstructured.Unstructure
 	return nil
 }
 
+// Read-Note: 具有 Replicas 字段的对象，例如 RS 和 Deployment，他们 Replicas 字段可能是被各自集群内的 HPA 对象接管的，这种情况下不修改
 func retainReplicas(desiredObj, clusterObj, fedObj *unstructured.Unstructured) error {
 	// Retain the replicas field if the federated object has been
 	// configured to do so.  If the replicas field is intended to be

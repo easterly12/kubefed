@@ -72,6 +72,9 @@ type resourceAccessor struct {
 	eventRecorder record.EventRecorder
 }
 
+// Read-Note: 实际处理 fed 资源的 Accessor 初始化
+// 主要针对三类资源有一些差异处理：资源就是 NS，资源是 NS 相关的，资源是 NS 无关的
+// 然后之后对于资源接口的调用对于这三类情况有些差异而已，并没有其他复杂逻辑
 func NewFederatedResourceAccessor(
 	controllerConfig *util.ControllerConfig,
 	typeConfig typeconfig.Interface,
