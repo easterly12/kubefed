@@ -268,6 +268,7 @@ func (cc *ClusterController) updateIndividualClusterStatus(cluster *fedv1b1.Kube
 	clusterClient := storedData.clusterKubeClient
 
 	// Read-Note: 通过监控检查接口 `/healthz` 判定集群 status 中的 condition 细节
+	// Read-Question: 对于华为云的场景，基本这个机制判断都会是在线，对于集群的其他（应该说大部分）异常场景并不能被感知
 	currentClusterStatus, err := clusterClient.GetClusterHealthStatus()
 	if err != nil {
 		cc.RecordError(cluster, "RetrievingClusterHealthFailed", errors.Wrap(err, "Failed to retrieve health of the cluster"))
