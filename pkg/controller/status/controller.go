@@ -79,6 +79,7 @@ type KubeFedStatusController struct {
 	fedNamespace string
 }
 
+// Read-Note: 初始化和启动的 Status Controller 是在 FTC 的调协时使用
 // StartKubeFedStatusController starts a new status controller for a type config
 func StartKubeFedStatusController(controllerConfig *util.ControllerConfig, stopChan <-chan struct{}, typeConfig typeconfig.Interface) error {
 	controller, err := newKubeFedStatusController(controllerConfig, typeConfig)
@@ -148,6 +149,7 @@ func newKubeFedStatusController(controllerConfig *util.ControllerConfig, typeCon
 			qualifiedName := util.NewQualifiedName(obj)
 			s.worker.EnqueueForRetry(qualifiedName)
 		},
+		// Read-Note: 和 sync.controller informer 部分的定义相同，不赘述
 		&util.ClusterLifecycleHandlerFuncs{
 			ClusterAvailable: func(cluster *fedv1b1.KubeFedCluster) {
 				// When new cluster becomes available process all the target resources again.
@@ -231,6 +233,7 @@ func (s *KubeFedStatusController) reconcileOnClusterChange() {
 	}
 }
 
+// Read-Note: FTC Status 的调协
 func (s *KubeFedStatusController) reconcile(qualifiedName util.QualifiedName) util.ReconciliationStatus {
 	defer metrics.UpdateControllerReconcileDurationFromStart("statuscontroller", time.Now())
 
@@ -238,6 +241,9 @@ func (s *KubeFedStatusController) reconcile(qualifiedName util.QualifiedName) ut
 		return util.StatusNotSynced
 	}
 
+	// Read-Note: 以对应 FTC 的名称作为 key 从 cache 获取 fed object，
+	// 然后构造汇总各个集群的 object status 与现有进行比对，如果有变动就更新
+	// 这部分走了比较多的 cache 应该是考虑到对于 API Server 的压力（毕竟触发条件基本上是 All Modification）
 	federatedKind := s.typeConfig.GetFederatedType().Kind
 	statusKind := s.typeConfig.GetStatusType().Kind
 	key := qualifiedName.String()
