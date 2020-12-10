@@ -25,6 +25,7 @@ import (
 )
 
 var (
+	// Read-Note: 加入集群的状态
 	kubefedClusterTotal = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "kubefedcluster_total",
@@ -32,6 +33,7 @@ var (
 		}, []string{"state", "cluster"},
 	)
 
+	// Read-Note: 加入的集群总数
 	joinedClusterTotal = prometheus.NewGauge(
 		prometheus.GaugeOpts{
 			Name: "joined_cluster_total",
@@ -39,6 +41,7 @@ var (
 		},
 	)
 
+	// Read-Note: 单次探测集群健康状态的耗时分布
 	clusterHealthStatusDuration = prometheus.NewHistogram(
 		prometheus.HistogramOpts{
 			Name:    "cluster_health_status_duration_seconds",
@@ -47,6 +50,7 @@ var (
 		},
 	)
 
+	// Read-Note: 单次请求集群 Client 的耗时分布
 	clusterClientConnectionDuration = prometheus.NewHistogram(
 		prometheus.HistogramOpts{
 			Name:    "cluster_client_connection_duration_seconds",
@@ -55,6 +59,7 @@ var (
 		},
 	)
 
+	// Read-Note: 针对单一 fed resource 对象单次在所有目标集群调协的耗时分布
 	reconcileFederatedResourcesDuration = prometheus.NewHistogram(
 		prometheus.HistogramOpts{
 			Name:    "reconcile_federated_resources_duration_seconds",
@@ -63,6 +68,8 @@ var (
 		},
 	)
 
+	// Read-Note: 加入单个集群全部初始化操作完成的耗时分布
+	// 流程包括：host cluster & member cluster 初始化、相关 SA、secret、fed NS 、fed cluster的初始化（基本就是 join 的全流程）
 	joinedClusterDuration = prometheus.NewHistogram(
 		prometheus.HistogramOpts{
 			Name:    "join_cluster_duration_seconds",
@@ -71,6 +78,8 @@ var (
 		},
 	)
 
+	// Read-Note: 移除单个集群全部清理操作完成的耗时分布
+	// 流程包括：清理相关的 RBAC 资源（SA、RoleBinding、Secret）、fed NS、fed cluster（基本就是 unjoin 的全流程）
 	unjoinedClusterDuration = prometheus.NewHistogram(
 		prometheus.HistogramOpts{
 			Name:    "unjoin_cluster_duration_seconds",
@@ -79,6 +88,7 @@ var (
 		},
 	)
 
+	// Read-Note: 单一 fed resource 单次 dispatch 到单个集群的耗时，action 包含：create&update（managed）、delete（unmanaged）
 	dispatchOperationDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "dispatch_operation_duration_seconds",
@@ -87,6 +97,9 @@ var (
 		}, []string{"action"},
 	)
 
+	// Read-Note: 针对某个 controller 触发一次针对 fed resource 的全部集群调协动作的耗时分布，纳入统计的有：
+	// 目前关注的有：FedTypeConfig、SchedulingManager、SchedulingPreference、Status
+	// 暂时忽略：IngressDNS、ServiceDNS
 	controllerRuntimeReconcileDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "controller_runtime_reconcile_duration_seconds",
@@ -95,6 +108,7 @@ var (
 		}, []string{"controller"},
 	)
 
+	// Read-Note: 和 `controllerRuntimeReconcileDuration` 是配套记录的，记录近 1h 的耗时的取样
 	controllerRuntimeReconcileDurationSummary = prometheus.NewSummaryVec(
 		prometheus.SummaryOpts{
 			Name:   "controller_runtime_reconcile_quantile_seconds",
