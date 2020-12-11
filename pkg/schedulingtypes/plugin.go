@@ -145,6 +145,7 @@ func (p *Plugin) Reconcile(qualifiedName util.QualifiedName, result map[string]i
 
 	isDirty := false
 
+	// Read-Note: 和其他调协一样都是要比对当前和期望的 cluster 列表是否一致
 	newClusterNames := []string{}
 	for name := range result {
 		newClusterNames = append(newClusterNames, name)
@@ -161,6 +162,7 @@ func (p *Plugin) Reconcile(qualifiedName util.QualifiedName, result map[string]i
 		isDirty = true
 	}
 
+	// Read-Note: 构造当前的 overrides map，叠加 replicas map
 	overridesMap, err := util.GetOverrides(fedObject)
 	if err != nil {
 		return errors.Wrapf(err, "Error reading cluster overrides for %s %q", p.typeConfig.GetFederatedType().Kind, qualifiedName)
@@ -173,6 +175,7 @@ func (p *Plugin) Reconcile(qualifiedName util.QualifiedName, result map[string]i
 		isDirty = true
 	}
 
+	// Read-Note: 将有必要覆盖到 FT 的 Override 的字段进行写会，避免 plugin 的逻辑在之后执行时丢失
 	if isDirty {
 		_, err := p.federatedTypeClient.Resources(qualifiedName.Namespace).Update(context.Background(), fedObject, metav1.UpdateOptions{})
 		if err != nil {
@@ -199,6 +202,7 @@ func setOverrides(obj *unstructured.Unstructured, overridesMap util.OverridesMap
 }
 
 func updateOverridesMap(overridesMap util.OverridesMap, replicasMap map[string]int64) {
+	// Read-Note: 对于不需要调度的集群，移除其对于 spec replicas 字段的覆盖
 	// Remove replicas override for clusters that are not scheduled
 	for clusterName, clusterOverrides := range overridesMap {
 		if _, ok := replicasMap[clusterName]; !ok {
@@ -211,6 +215,7 @@ func updateOverridesMap(overridesMap util.OverridesMap, replicasMap map[string]i
 			}
 		}
 	}
+	// Read-Note: 添加或者修改需要调度集群的 spec replicas 字段
 	// Add/update replicas override for clusters that are scheduled
 	for clusterName, replicas := range replicasMap {
 		replicasOverrideFound := false

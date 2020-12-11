@@ -150,6 +150,8 @@ func (c *SchedulingManager) reconcile(qualifiedName util.QualifiedName) util.Rec
 	klog.V(3).Infof("Running reconcile FederatedTypeConfig %q in scheduling manager", key)
 
 	typeConfigName := qualifiedName.Name
+	// Read-Note: 调协时获取已经注册的 Schedule type 的类型
+	// 目前是只有 Replicas（在 replica scheduler 的 init 中进行注册，只对于 deployment 和 RS 两类进行注册）
 	schedulingType := schedulingtypes.GetSchedulingType(typeConfigName)
 	if schedulingType == nil {
 		// No scheduler supported for this resource
@@ -157,6 +159,11 @@ func (c *SchedulingManager) reconcile(qualifiedName util.QualifiedName) util.Rec
 	}
 	schedulingKind := schedulingType.Kind
 
+	// Read-Note: 对于命中的 Schedule Type ，根据 key 从 cache 里取对象
+	// 如果 Propagation 未开启，或非存在且存续的对象则清理可能遗留的已经注册的 Plugin
+	// 对于确实需要处理是向下再封装了 scheduling preference 一层结构
+	// 就是一个延时队列 + 注册的 scheduler，其中来实际执行 Reconcile
+	// 所以如果要扩展 Scheduler 来注入 Plugin 参考 Replica 的方式实现完 interface 再注册就好
 	cachedObj, exist, err := c.store.GetByKey(key)
 	if err != nil {
 		runtime.HandleError(errors.Wrapf(err, "Failed to query FederatedTypeConfig store for %q in scheduling manager", key))
