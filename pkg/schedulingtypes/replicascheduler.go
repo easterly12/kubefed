@@ -264,7 +264,7 @@ func (s *ReplicaScheduler) GetSchedulingResult(rsp *fedschedulingv1a1.ReplicaSch
 		return nil, err
 	}
 
-	// Read-Note: 看到这个熟悉的比例分配结构，居然还套了 min max
+	// Read-Note: 看到这个熟悉的比例分配结构，居然还套了 min max ，整体逻辑复杂度💥上天
 	// TODO: Move this to API defaulting logic
 	if len(rsp.Spec.Clusters) == 0 {
 		rsp.Spec.Clusters = map[string]fedschedulingv1a1.ClusterPreferences{

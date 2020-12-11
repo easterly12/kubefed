@@ -113,7 +113,8 @@ func (p *Planner) Plan(availableClusters []string, currentReplicaCount map[strin
 	// This is the requested total replicas in preferences
 	remainingReplicas := int64(p.preferences.Spec.TotalReplicas)
 
-	// Assign each cluster the minimum number of replicas it requested.
+	// Read-Note: 这里的思路是以 estimated Capacity 尽可能小（也就是距离预期实例分布最接近）的条件
+	// 来计算每个集群最小需要保证的实例数，当然还有 preference 中 min replicas 的影响
 	for _, preference := range preferences {
 		min := minInt64(preference.MinReplicas, remainingReplicas)
 		if capacity, hasCapacity := estimatedCapacity[preference.clusterName]; hasCapacity {
@@ -129,6 +130,9 @@ func (p *Planner) Plan(availableClusters []string, currentReplicaCount map[strin
 	// distribution code.
 	preallocated := make(map[string]int64)
 
+	// Read-Question: 企图对照 `pkg/schedulingtypes/replicascheduler.go` 的 `schedule()` 分析过这边的一系列 replicas 重分布是否合理
+	// 结论是弱弱的放弃了，如果要针对定制的实例重分布场景来做支持，个人认为更好的方案是实现一个自定义的 replica plugin ，
+	// 甚至完全不用 preference 叠加，当前的官方实现必须考虑尽可能多的场景，其策略配置对于单一场景太不友好了
 	if !p.preferences.Spec.Rebalance {
 		for _, preference := range preferences {
 			planned := plan[preference.clusterName]
@@ -154,6 +158,7 @@ func (p *Planner) Plan(availableClusters []string, currentReplicaCount map[strin
 
 	modified := true
 
+	// Read-Note: 这边是配合 preference 权重再做一系列实例重分布，实在看不下去了_(:з」∠)_
 	// It is possible single pass of the loop is not enough to distribute all replicas among clusters due
 	// to weight, max and rounding corner cases. In such case we iterate until either
 	// there is no replicas or no cluster gets any more replicas or the number
