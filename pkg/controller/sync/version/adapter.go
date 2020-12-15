@@ -39,6 +39,9 @@ type VersionAdapter interface {
 	SetStatus(obj pkgruntime.Object, status *fedv1a1.PropagatedVersionStatus)
 }
 
+
+// Read-Note: Adapter 没有复杂逻辑，只是针对是否 NS 相关，在生成 Version 的时候决定带不带上 NS
+// 但从上层的调用来看有点多余，反正 cluster version 本身就是空 NS，区不区分其实都一样，不清楚是否在为后续实现做预留
 func NewVersionAdapter(namespaced bool) VersionAdapter {
 	if namespaced {
 		return &namespacedVersionAdapter{}

@@ -286,6 +286,9 @@ func GetOverrideHash(rawObj *unstructured.Unstructured) (string, error) {
 	return hashUnstructured(obj, "overrides")
 }
 
+// Read-Note：这里是 template 和 override 获取 version 的最终实现，计算方式是把需要计算的结构部分进行 JSON 编码后取 Hash，
+// 显然这个方法在集群规模较大的场景就会负担很重，因为上层的调用时在 sync 时对于每个集群对象都需要调用不止一次做计算，
+// 如果能优化这部分（比如用 proto ？）收益会比较客观
 // TODO(marun) Investigate alternate ways of computing the hash of a field map.
 func hashUnstructured(obj *unstructured.Unstructured, description string) (string, error) {
 	jsonBytes, err := obj.MarshalJSON()

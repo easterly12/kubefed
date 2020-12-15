@@ -49,6 +49,7 @@ type VersionedResource interface {
 	OverrideVersion() (string, error)
 }
 
+// Read-Note: Version Manager 主要是用于计算各类对象是否有进行局部的变更（template & override）
 type VersionManager struct {
 	sync.RWMutex
 
