@@ -190,6 +190,10 @@ func (a *resourceAccessor) FederatedResource(eventSource util.QualifiedName) (Fe
 
 	kind := a.typeConfig.GetFederatedType().Kind
 
+	// Read-Question: 这段代码就是个死绕，但是其实不管是 NS 还是 NS 是否相关，最终都是为了获取 key ，NS/Name 或者 Name 的形式而已
+	// target 和 fed 取的都是 NS = eventSource.Namespace、Name = eventSource.Name
+	// Read-Question: 因为之前看过了 Version Manager 那边的 Adapter 实现（虽然在那边目前显得有点多余）
+	// 反倒是目前 NS 相关，是否 NS，生成 Key 之类的重复操作其实，更适合加一层这样的适配，逻辑上会简洁流畅很多
 	// Most federated resources have the same name as their targets.
 	targetName := util.QualifiedName{
 		Namespace: eventSource.Namespace,
@@ -230,6 +234,8 @@ func (a *resourceAccessor) FederatedResource(eventSource util.QualifiedName) (Fe
 		// FederatedNamespace.
 		sourceIsFederatedNamespace := a.targetIsNamespace && eventSource.Namespace != ""
 
+		// Read-Question: 这里对于可能是 Orphan 的判断排除 NS 原来有些疑问，但是看到上层对于这个 return 的处理就有点明白了
+		// 毕竟 NS 的清理会影响下属全部 Resource，排除掉是一种更为保险的做法
 		// The lack of a federated resource indicates that the event
 		// source may be an orphaned resource that still has the
 		// managed label.
@@ -259,6 +265,7 @@ func (a *resourceAccessor) FederatedResource(eventSource util.QualifiedName) (Fe
 
 	var fedNamespace *unstructured.Unstructured
 	if a.typeConfig.GetNamespaced() {
+		// Read-Note: 需要确认 NS 相关对象的 NS 的 Fed NS 是否存在，否则也没法继续后续流程
 		fedNamespaceName := util.QualifiedName{Namespace: federatedName.Namespace, Name: federatedName.Namespace}
 		fedNamespace, err = util.ObjFromCache(a.fedNamespaceStore, a.fedNamespaceAPIResource.Kind, fedNamespaceName.String())
 		if err != nil {

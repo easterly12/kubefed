@@ -314,7 +314,7 @@ func (s *KubeFedSyncController) reconcile(qualifiedName util.QualifiedName) util
 	}
 
 	// Read-Note: 最后才是真正的同步所有集群环节，其中流程是：
-	// 1. 获取全部集群，根据 fed resource placement 获取其中关联到的集群（这段路基再 placement）
+	// 1. 获取全部集群，根据 fed resource placement 获取其中关联到的集群（这段逻辑具体在 placement.go 具体查看）
 	// 1.1. 选中的集群是已经注册的集群和 resource placement 中的集群取交集，也就是说 placement 中存在未注册集群会被忽略
 	// 1.2. 如果对象本身是 NS 关联的，则获取的交集是需要带上 NS 再取交集
 	// 2. 实际同步的工作由 Dispatcher 中的 Managed 类负责，Dispatcher 判断集群是否为选中、就绪
@@ -327,7 +327,8 @@ func (s *KubeFedSyncController) reconcile(qualifiedName util.QualifiedName) util
 	// 4. 更新记录 fed resource status 到 host cluster：
 	// 要么更新 status 成功则一次完成，否则会进行 interval 1s timeout 5s 的重试，超时仍认为更新 Status 失败
 	// * 其他一些原因也会触发 Status 更新到 host cluster （setFederatedStatus 的调用位置，具体见传入的 reason ）
-	// * 最终 status 更新的流程见 status.SetFederatedStatus
+	// 5. 更新 version map 到 fed resource ，这部分具体逻辑在 sync/version 有分析相关实现问题
+	// 6. 最终 status 更新的流程见 status.SetFederatedStatus
 	return s.syncToClusters(fedResource)
 }
 
@@ -378,6 +379,9 @@ func (s *KubeFedSyncController) syncToClusters(fedResource FederatedResource) ut
 			clusterObj = rawClusterObj.(*unstructured.Unstructured)
 		}
 
+		// Read-Question: 这里有个潜在风险，如果一个新的集群加入前就有相关的对象，但当前不期望由 kubefed 接管，就要被误伤了
+		// 可能合适的做法是加上一个是否主动清理的选项，然后判断下对象的创建时间或者根据 managed label 判断下是否需要清理，
+		// 如果保留可以发一些 event 或者上报 status
 		// Resource should not exist in the named cluster
 		if !selectedCluster {
 			if clusterObj == nil {
