@@ -52,6 +52,14 @@ func NewPlanner(preferences *fedschedulingv1a1.ReplicaSchedulingPreference) *Pla
 	}
 }
 
+// Read-Question: 讲真这段代码我没看懂，可能是为了通用，考虑了各类极端场景，但其实目前我们想要的场景就真的很简单
+// 暂时先把大神们的脑回路在这里供着，如果实际要用我选择更稳妥的再实现个 Planner 甚至 Plugin
+// Read-Note: 这段我唯一 get 到的点在于是把期望的总实例数按照一定的策略逐论分配到各个集群，但是讲真每一轮的策略都显得太晦涩了
+// 个人觉得这样的做法除了复杂度有点高之外，其实对于部分场景并不合适（例如：实例倾向优先选择不漂移到其他集群而选择等待 CA 扩容）
+// 然后还有一点能想到就是这边有一点不太合理，按照目前这个重分配的机制，如果是被转移的实例，当原先的集群恢复之后，并不会倾向于恢复到原来的集群
+// Read-Note: 个人脑洞是：参考调度打分之类的机制，在集群注册的时候配置或者获取一些信息（例如开启 CA、物理的 AZ、Region）；
+// 将正常符合期望的实例分配完了之后，依照打分高低将剩下必须转移的实例选择集群放置（可能要比现在随机 Hash 一把要合理一些）；
+// 然后还有一点就是 related pod(s) count 的计算其实也放到 planner 里会比较好，也就是当前 `clustersReplicaState` 的部分
 // Distribute the desired number of replicas among the given cluster according to the planner preferences.
 // The function tries its best to assign each cluster the preferred number of replicas, however if
 // sum of MinReplicas for all cluster is bigger than replicasToDistribute (TotalReplicas) then some cluster

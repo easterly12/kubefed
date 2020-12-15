@@ -181,6 +181,8 @@ func (c *SchedulingManager) reconcile(qualifiedName util.QualifiedName) util.Rec
 		return util.StatusAllOK
 	}
 
+	// Read-Question: 这部分做了一大 part 的 FTC 的文法检查和纠正，
+	// 先不说有那么多单复数同型之类的特例 cover 不到，这货也应该放 validating webhook configuration 在入口把好关才对
 	// set name and group for the type config target
 	corev1b1.SetFederatedTypeConfigDefaults(typeConfig)
 
