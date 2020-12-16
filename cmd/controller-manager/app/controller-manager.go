@@ -69,6 +69,8 @@ var (
 	kubeconfig, kubeFedConfig, masterURL, metricsAddr, healthzAddr string
 )
 
+// Read-Note: 从描述和启动的 option 都可以了解到其功能：监听和管理 member 的 kube fed CRD 和相关 resource
+// 例如：处理集群健康检查的上报、集群监控指标暴露、集群配置和 fed 配置的指定、必要的版本信息的暴露
 // NewControllerManagerCommand creates a *cobra.Command object with default parameters
 func NewControllerManagerCommand(stopChan <-chan struct{}) *cobra.Command {
 	verFlag := false

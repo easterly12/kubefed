@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/kubefed/cmd/controller-manager/app"
 )
 
+// Read-Note: Controller manager的启动入口
 // Controller-manager main.
 func main() {
 	logs.InitLogs()
